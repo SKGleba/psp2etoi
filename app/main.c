@@ -202,10 +202,13 @@ int handler_mgmtstatus_det(char* arg) {
 
 int handler_nvs_op(char* arg) {
     if (CURRENT_CMD < CMD_NVS_OP0_OFFSET || CURRENT_CMD > CMD_NVS_OP3_OFFSET)
-        return -21;
+        return -20;
 
-    if (!g_cmd_args[CURRENT_CMD + 4].used || !g_cmd_args[CURRENT_CMD + 8].used || !g_cmd_args[CURRENT_CMD + 12].used)
-        return -22;
+    if (!g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_RWSIZE - CMD_NVS_OP0_OFFSET)].used || !g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_BUFCRC - CMD_NVS_OP0_OFFSET)].used)
+        return -20;
+
+    if (!g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_IOFILE - CMD_NVS_OP0_OFFSET)].used && !g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_INRAWH - CMD_NVS_OP0_OFFSET)].used)
+        return -20;
 
     // get offset
     uint16_t offset = 0;
@@ -223,14 +226,14 @@ int handler_nvs_op(char* arg) {
 
     // get size
     uint16_t size = 0;
-    if (antoh(g_cmd_args[CURRENT_CMD + 4].ascii_arg + 2, &size, 2))
+    if (antoh(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_RWSIZE - CMD_NVS_OP0_OFFSET)].ascii_arg + 2, &size, 2))
         return -24;
 
     char size_a[4];
     if (hntoa(&size, size_a, 4))
         return -25;
 
-    if (memcmp(g_cmd_args[CURRENT_CMD + 4].ascii_arg + 2, size_a, 4))
+    if (memcmp(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_RWSIZE - CMD_NVS_OP0_OFFSET)].ascii_arg + 2, size_a, 4))
         return -26;
 
     size = BSWAP16(size);
@@ -247,32 +250,45 @@ int handler_nvs_op(char* arg) {
 
     // get data crc
     uint32_t crc = 0;
-    if (antoh(g_cmd_args[CURRENT_CMD + 12].ascii_arg + 2, &crc, 4))
+    if (antoh(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_BUFCRC - CMD_NVS_OP0_OFFSET)].ascii_arg + 2, &crc, 4))
         return -30;
 
     char crc_a[8];
     if (hntoa(&crc, crc_a, 8))
         return -31;
 
-    if (memcmp(g_cmd_args[CURRENT_CMD + 12].ascii_arg + 2, crc_a, 8))
+    if (memcmp(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_BUFCRC - CMD_NVS_OP0_OFFSET)].ascii_arg + 2, crc_a, 8))
         return -32;
 
     crc = BSWAP32(crc);
 
-    // get file
-    uint8_t* file_buf = malloc(size);
-    if (!file_buf)
+    // alloc buf for data
+    uint8_t* data_buf = malloc(size);
+    if (!data_buf)
         return -33;
-    
-    FILE* fp = fopen(g_cmd_args[CURRENT_CMD + 8].ascii_arg, "rb");
-    if (!fp)
-        return -34;
-    fread(file_buf, size, 1, fp);
-    fclose(fp);
+
+    if (g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_IOFILE - CMD_NVS_OP0_OFFSET)].used) { // read file
+        FILE* fp = fopen(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_IOFILE - CMD_NVS_OP0_OFFSET)].ascii_arg, "rb");
+        if (!fp) {
+            free(data_buf);
+            return -34;
+        }
+        fread(data_buf, size, 1, fp);
+        fclose(fp);
+    } else { // read data
+        if ((size * 2) > strlen(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_INRAWH - CMD_NVS_OP0_OFFSET)].ascii_arg)) {
+            free(data_buf);
+            return -34;
+        }
+        if (antoh(g_cmd_args[CURRENT_CMD + (CMD_NVS_OP0_INRAWH - CMD_NVS_OP0_OFFSET)].ascii_arg, data_buf, size)) {
+            free(data_buf);
+            return -34;
+        }
+    }
 
     // verify file
-    if (crc32(0, file_buf, size) != crc) {
-        free(file_buf);
+    if (crc32(0, data_buf, size) != crc) {
+        free(data_buf);
         return -35;
     }
 
@@ -281,24 +297,24 @@ int handler_nvs_op(char* arg) {
         int snvs_sector_count = size / 0x20;
         uint32_t tmp_crc32_in, tmp_crc32_out;
         for (int i = 0; i < snvs_sector_count; i++) {
-            tmp_crc32_in = crc32(0, file_buf + (i * 0x20), 0x20);
-            int ret = proxy_etoiNvsRwSecure(1, snvs_sector_start + i, file_buf + (i * 0x20), tmp_crc32_in, &tmp_crc32_out);
-            if (ret || tmp_crc32_in != tmp_crc32_out) {
-                free(file_buf);
+            tmp_crc32_in = crc32(0, data_buf + (i * 0x20), 0x20);
+            int ret = proxy_etoiNvsRwSecure(1, snvs_sector_start + i, data_buf + (i * 0x20), tmp_crc32_in, &tmp_crc32_out);
+            if (ret || (tmp_crc32_in != tmp_crc32_out && (snvs_sector_start > 1 || i))) {
+                free(data_buf);
                 return -36;
             }
         }
     } else { // write nvs
         uint32_t tmp_crc32_in, tmp_crc32_out;
-        tmp_crc32_in = crc32(0, file_buf, size);
-        int ret = proxy_etoiNvsRw(1, offset, file_buf, size, tmp_crc32_in, &tmp_crc32_out);
+        tmp_crc32_in = crc32(0, data_buf, size);
+        int ret = proxy_etoiNvsRw(1, offset, data_buf, size, tmp_crc32_in, &tmp_crc32_out);
         if (ret || tmp_crc32_in != tmp_crc32_out) {
-            free(file_buf);
+            free(data_buf);
             return -37;
         }
     }
 
-    free(file_buf);
+    free(data_buf);
     return 0;
 }
 
@@ -416,6 +432,11 @@ int main() {
 
     sceIoMkdir(PSP2ETOI_DIR, 0777);
 
+    psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+
     psvDebugScreenSetFgColor(COLOR_RED);
     printf("This software will make PERMANENT modifications to your Vita\nIf anything goes wrong, there is NO RECOVERY.\n\n");
     psvDebugScreenSetFgColor(COLOR_GREEN);
@@ -426,6 +447,9 @@ int main() {
     }
 
     psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
 
     int ret = selftest();
     if (ret) {
@@ -440,9 +464,14 @@ int main() {
     printf("\nselftest PASSED\n\n");
     psvDebugScreenSetFgColor(COLOR_WHITE);
 
-    if (file_exists(CFG_INPUT_PATH)) {
-        psvDebugScreenClear(COLOR_BLACK);
+    sceKernelDelayThread(1000 * 1000);
 
+    psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+
+    if (file_exists(CFG_INPUT_PATH)) {
         dispatch_table_to_garray();
 
         FILE* fp = fopen(CFG_INPUT_PATH, "rb");
@@ -469,7 +498,7 @@ int main() {
         psvDebugScreenSetFgColor(COLOR_PURPLE);
         for (int i = 0; i < COMMAND_COUNT; i++) {
             if (g_cmd_args[i].used) {
-                printf("%s = %s\n", valid_commands[i], g_cmd_args[i].ascii_arg);
+                printf("%s = %s\n", valid_commands[i], (i >= CMD_NVS_OP0_INRAWH && i <= CMD_NVS_OP3_INRAWH) ? "[DATA]" : g_cmd_args[i].ascii_arg);
                 actually_used = 1;
             }
         }
@@ -508,12 +537,17 @@ int main() {
         printf("Press TRIANGLE to flash the configuration.\n");
         psvDebugScreenSetFgColor(COLOR_WHITE);
         if (get_key() == SCE_CTRL_TRIANGLE) {
-            
+
+            psvDebugScreenClear(COLOR_BLACK);
+            psvDebugScreenSetFgColor(COLOR_BLUE);
+            printf(PSP2ETOI_INFO);
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+
             psvDebugScreenSetFgColor(COLOR_YELLOW);
             
             for (int i = 2; i < COMMAND_COUNT; i++) {
                 if (g_cmd_args[i].used && g_cmd_args[i].cmd_handler) {
-                    printf("%s ...", valid_commands[i]);
+                    printf("%s... ", valid_commands[i]);
                     CURRENT_CMD = i;
                     int ret = g_cmd_args[i].cmd_handler(g_cmd_args[i].ascii_arg);
                     if (ret) {
@@ -525,7 +559,7 @@ int main() {
                         return -1;
                     } else {
                         psvDebugScreenSetFgColor(COLOR_GREEN);
-                        printf("OK\n");
+                        printf("OK => %s\n", g_cmd_args[i].ascii_arg);
                         psvDebugScreenSetFgColor(COLOR_YELLOW);
                     }
                 }

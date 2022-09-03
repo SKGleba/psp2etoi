@@ -1,3 +1,5 @@
+#define PSP2ETOI_INFO "------------------------->\npsp2etoi v0.8.9 by skgleba\n------------------------->\n\n"
+
 #define BSWAP16(x) (((x << 8) & 0xff00) | ((x >> 8) & 0x00ff))
 #define BSWAP32(x) (((x << 24) & 0xff000000 ) | ((x <<  8) & 0x00ff0000 ) | ((x >>  8) & 0x0000ff00 ) | ((x >> 24) & 0x000000ff ))
 
@@ -8,7 +10,7 @@
 #define SNVS_OUTPUT_FILE "ux0:data/psp2etoi/snvs_20_to_3E0.bin"
 #define NVS_OUTPUT_FILE "ux0:data/psp2etoi/nvs_400_to_B60.bin"
 
-#define COMMAND_COUNT 27
+#define COMMAND_COUNT 31
 
 const char* valid_commands[COMMAND_COUNT] = {
     "INVALID",
@@ -38,6 +40,10 @@ const char* valid_commands[COMMAND_COUNT] = {
     "NVS_OP1_BUFCRC",
     "NVS_OP2_BUFCRC",
     "NVS_OP3_BUFCRC",
+    "NVS_OP0_INRAWH",
+    "NVS_OP1_INRAWH",
+    "NVS_OP2_INRAWH",
+    "NVS_OP3_INRAWH",
 };
 
 enum CMD_ENUMS {
@@ -68,6 +74,10 @@ enum CMD_ENUMS {
     CMD_NVS_OP1_BUFCRC,
     CMD_NVS_OP2_BUFCRC,
     CMD_NVS_OP3_BUFCRC,
+    CMD_NVS_OP0_INRAWH,
+    CMD_NVS_OP1_INRAWH,
+    CMD_NVS_OP2_INRAWH,
+    CMD_NVS_OP3_INRAWH,
 };
 
 struct _cmd_args {
@@ -106,4 +116,8 @@ static struct _cmd_args g_cmd_args[COMMAND_COUNT] = {
     {0, 10, 10, NULL, NULL}, // crc32 for NV op 1
     {0, 10, 10, NULL, NULL}, // crc32 for NV op 2
     {0, 10, 10, NULL, NULL}, // crc32 for NV op 3
+    {0, 0x20, 0x1000, NULL, NULL}, // hex data for NV op 0
+    {0, 0x20, 0x1000, NULL, NULL}, // hex data for NV op 1
+    {0, 0x20, 0x1000, NULL, NULL}, // hex data for NV op 2
+    {0, 0x20, 0x1000, NULL, NULL}, // hex data for NV op 3
 };
