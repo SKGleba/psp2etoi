@@ -1,4 +1,4 @@
-#define PSP2ETOI_INFO "------------------------->\npsp2etoi v0.8.9 by skgleba\n------------------------->\n\n"
+#define PSP2ETOI_INFO "------------------------->\npsp2etoi v0.9.0 by skgleba\n------------------------->\n\n"
 
 #define BSWAP16(x) (((x << 8) & 0xff00) | ((x >> 8) & 0x00ff))
 #define BSWAP32(x) (((x << 24) & 0xff000000 ) | ((x <<  8) & 0x00ff0000 ) | ((x >>  8) & 0x0000ff00 ) | ((x >> 24) & 0x000000ff ))
@@ -7,7 +7,7 @@
 #define CFG_INPUT_PATH "ux0:data/psp2etoi/input.cfg"
 #define CFG_OUTPUT_PATH "ux0:data/psp2etoi/output.cfg"
 #define UDI_OUTPUT_FILE "ux0:data/psp2etoi/udi.bin"
-#define SNVS_OUTPUT_FILE "ux0:data/psp2etoi/snvs_20_to_3E0.bin"
+#define SNVS_OUTPUT_FILE "ux0:data/psp2etoi/snvs_0_to_400.bin"
 #define NVS_OUTPUT_FILE "ux0:data/psp2etoi/nvs_400_to_B60.bin"
 
 #define COMMAND_COUNT 31

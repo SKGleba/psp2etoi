@@ -11,11 +11,31 @@
 #include <psp2kern/kernel/modulemgr.h>
 #include <vitasdkkern.h>
 
-#include "../cmep/udienc.h"
-#include "../cmep/udienc_defs.h"
+#include "../cmep/encrypt_udi/udienc.h"
+#include "../cmep/encrypt_udi/udienc_defs.h"
+#include "../cmep/patch_ussm_snvs_rw/pussm.h"
+
 #include "crc32.c"
 
 #define printf ksceDebugPrintf
+
+#define DACR_OFF(stmt)                 \
+do {                                   \
+    unsigned prev_dacr;                \
+    __asm__ volatile(                  \
+        "mrc p15, 0, %0, c3, c0, 0 \n" \
+        : "=r" (prev_dacr)             \
+    );                                 \
+    __asm__ volatile(                  \
+        "mcr p15, 0, %0, c3, c0, 0 \n" \
+        : : "r" (0xFFFF0000)           \
+    );                                 \
+    stmt;                              \
+    __asm__ volatile(                  \
+        "mcr p15, 0, %0, c3, c0, 0 \n" \
+        : : "r" (prev_dacr)            \
+    );                                 \
+} while (0)
 
 static int g_ret = -1;
 static int g_leaf_num = -1;
@@ -259,35 +279,86 @@ int etoiNvsRwSecure(int write, int sector, void* io_data, uint32_t u_ioutcrc[2])
 	uint32_t in_crc = ioutcrc[0];
 	uint32_t out_crc = ioutcrc[1];
 
-	int (*read_snvs)(int sector, void* data_out, int do_load_sm, int sm_ctx) = NULL;
-	int (*write_snvs)(int sector, void* data_in, int do_load_sm, int sm_ctx) = NULL;
-	module_get_offset(KERNEL_PID, ksceKernelSearchModuleByName("SceSblUpdateMgr"), 0, 0x7660 | 1, (uintptr_t*)&read_snvs);
-	module_get_offset(KERNEL_PID, ksceKernelSearchModuleByName("SceSblUpdateMgr"), 0, 0x7774 | 1, (uintptr_t*)&write_snvs);
-	if (!read_snvs || !write_snvs)
+	int (*stop_sm)(int* ctx) = NULL;
+	int (*load_sm)(int sm_type, int* ctx, int unk1) = NULL;
+	module_get_offset(KERNEL_PID, ksceKernelSearchModuleByName("SceSblUpdateMgr"), 0, 0x5278 | 1, (uintptr_t*)&stop_sm);
+	module_get_offset(KERNEL_PID, ksceKernelSearchModuleByName("SceSblUpdateMgr"), 0, 0x51a8 | 1, (uintptr_t*)&load_sm);
+	if (!stop_sm || !load_sm)
 		goto SNVSEXIT;
-	
-	if (write) {
-		ret = -2;
-		uint8_t in_data[0x20];
-		ksceKernelMemcpyUserToKernel(in_data, (uint32_t)io_data, 0x20);
-		if (crc32(0, in_data, 0x20) != in_crc)
-			goto SNVSEXIT;
 
-		ret = write_snvs(sector, in_data, 1, -1);
-		if (ret)
-			goto SNVSEXIT;
-	}
+	ret = -2;
+	int sm_ctx = -1;
+	if (load_sm(0, &sm_ctx, 0))
+		goto SNVSEXIT;
 
 	ret = -3;
-	uint8_t out_data[0x20];
-	memset(out_data, 0, 0x20);
-	ret = read_snvs(sector, out_data, 1, -1);
-	if (ret)
-		goto SNVSEXIT;
+	if (spl_exec_code(pussm_nmp, pussm_nmp_len, 0x0000C162, 1)) {
+		if (spl_exec_code(pussm_nmp, pussm_nmp_len, 0x0000C1C2, 1)) {
+			stop_sm(&sm_ctx);
+			goto SNVSEXIT;
+		}
+	}
 
-	uint32_t k_out_crc = crc32(0, out_data, 0x20);
+	int resp;
+	uint8_t sc_pbuf[0x88];
+
+	if (write) {
+		ret = -4;
+		memset(sc_pbuf, 0, 0x88);
+		sc_pbuf[0] = 2;
+		sc_pbuf[4] = sector;
+		ksceKernelMemcpyUserToKernel(sc_pbuf + 8, (uint32_t)io_data, 0x20);
+		if (crc32(0, sc_pbuf + 8, 0x20) != in_crc) {
+			stop_sm(&sm_ctx);
+			goto SNVSEXIT;
+		}
+
+		ret = -5;
+		if (ksceSblSmCommCallFunc(sm_ctx, 0xb0002, &resp, sc_pbuf, 0x88) || resp) {
+			stop_sm(&sm_ctx);
+			goto SNVSEXIT;
+		}
+
+		ret = -6;
+		if (ksceSysconNvsWriteSecureData(sc_pbuf + 0x28, 0x30, sc_pbuf + 0x58, 0x10)) {
+			stop_sm(&sm_ctx);
+			goto SNVSEXIT;
+		}
+
+		ret = -7;
+		sc_pbuf[0] = 3;
+		if (ksceSblSmCommCallFunc(sm_ctx, 0xb0002, &resp, sc_pbuf, 0x88) || resp) {
+			stop_sm(&sm_ctx);
+			goto SNVSEXIT;
+		}
+	}
+
+	ret = -8;
+	memset(sc_pbuf, 0, 0x88);
+	sc_pbuf[4] = sector;
+	if (ksceSblSmCommCallFunc(sm_ctx, 0xb0002, &resp, sc_pbuf, 0x88) || resp) {
+		stop_sm(&sm_ctx);
+		goto SNVSEXIT;
+	}
+
+	ret = -9;
+	if (ksceSysconNvsReadSecureData(sc_pbuf + 0x28, 0x10, sc_pbuf + 0x58, 0x30)) {
+		stop_sm(&sm_ctx);
+		goto SNVSEXIT;
+	}
+
+	ret = -10;
+	sc_pbuf[0] = 1;
+	if (ksceSblSmCommCallFunc(sm_ctx, 0xb0002, &resp, sc_pbuf, 0x88) || resp) {
+		stop_sm(&sm_ctx);
+		goto SNVSEXIT;
+	}
+
+	stop_sm(&sm_ctx);
+
+	uint32_t k_out_crc = crc32(0, sc_pbuf + 8, 0x20);
 	ksceKernelMemcpyKernelToUser((uint32_t)out_crc, &k_out_crc, 4);
-	ksceKernelMemcpyKernelToUser((uint32_t)io_data, out_data, 0x20);
+	ksceKernelMemcpyKernelToUser((uint32_t)io_data, sc_pbuf + 8, 0x20);
 
 	ret = 0;
 

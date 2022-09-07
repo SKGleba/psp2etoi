@@ -424,6 +424,14 @@ int main() {
     argg.args = 0;
     argg.argp = NULL;
     argg.flags = 0;
+    taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2spl.skprx", &argg);
+    
+    memset(&argg, 0, sizeof(argg));
+    argg.size = sizeof(argg);
+    argg.pid = KERNEL_PID;
+    argg.args = 0;
+    argg.argp = NULL;
+    argg.flags = 0;
     SceUID mod_id = taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2etoi.skprx", &argg);
     if (mod_id > 0)
         sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
@@ -726,8 +734,8 @@ int selftest(void) {
         uint8_t snvs_test_data[0x20];
         memset(snvs_test_data, 0, 0x20);
         uint32_t snvs_test_data_crc = 0;
-        printf("getting snvs sector 4...\n");
-        if (proxy_etoiNvsRwSecure(0, 4, snvs_test_data, 0, &snvs_test_data_crc)
+        printf("getting snvs sector 0...\n");
+        if (proxy_etoiNvsRwSecure(0, 0, snvs_test_data, 0, &snvs_test_data_crc)
             || crc32(0, snvs_test_data, 0x20) != snvs_test_data_crc) return ret;
 
         hexdump(snvs_test_data, 0x20);
@@ -761,7 +769,7 @@ int generate_config(char* dest) {
     memset(tmp_buf, 0, 0x1000);
 
     ret = -2;
-    uint8_t* cid = tmp_buf;
+    uint8_t cid[0x10];
     { // get ConsoleID
         uint32_t tmp_crc;
         uint8_t* tmp_leaf = tmp_buf + 0xE00;
@@ -770,7 +778,7 @@ int generate_config(char* dest) {
         memcpy(cid, tmp_leaf + 0xA0, 0x10);
     }
     ret = -3;
-    uint8_t* opsid = tmp_buf + 0x10;
+    uint8_t opsid[0x10];
     { // get OpenPSID
         uint32_t tmp_crc;
         uint8_t* tmp_leaf = tmp_buf + 0xE00;
@@ -786,18 +794,18 @@ int generate_config(char* dest) {
             goto CFG_FREEXIT;
     }
     ret = -5;
-    uint8_t* snvs_dumpable = tmp_buf + 0x20;
+    uint8_t* snvs = tmp_buf;
     uint16_t snvs_offset, snvs_size;
     uint32_t snvs_crc;
     { // get snvs
         uint32_t tmp_crc;
-        for (int i = 1; i < 0x1F; i++) {
-            if (proxy_etoiNvsRwSecure(0, i, snvs_dumpable + (i * 0x20) - 0x20, 0, &tmp_crc))
+        for (int i = 0; i < 0x20; i++) {
+            if (proxy_etoiNvsRwSecure(0, i, snvs + (i * 0x20), 0, &tmp_crc))
                 goto CFG_FREEXIT;
         }
-        snvs_offset = 0x20;
-        snvs_size = 0x3C0;
-        snvs_crc = crc32(0, snvs_dumpable, snvs_size);
+        snvs_offset = 0;
+        snvs_size = 0x400;
+        snvs_crc = crc32(0, snvs, snvs_size);
     }
     ret = -6;
     uint8_t* nvs = tmp_buf + 0x400;
@@ -814,7 +822,7 @@ int generate_config(char* dest) {
         int fd = sceIoOpen(SNVS_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
         if (fd < 0)
             goto CFG_FREEXIT;
-        sceIoWrite(fd, snvs_dumpable, snvs_size);
+        sceIoWrite(fd, snvs, snvs_size);
         sceIoClose(fd);
     }
     ret = -8;
@@ -907,10 +915,10 @@ int generate_config(char* dest) {
 #define CFG_SNVS_WARNING_STRING "#-- NVS data R/W --\r\n# WARNING: Editing the s/nvs may render the device unusable\r\n"
         memcpy(pen, CFG_SNVS_WARNING_STRING, strlen(CFG_SNVS_WARNING_STRING));
         pen += strlen(CFG_SNVS_WARNING_STRING);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x20 - 0x3A0 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_OFFSET], snvs_offset);
+        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x00 - 0x3E0 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_OFFSET], snvs_offset);
         memcpy(pen, tmp_string, strlen(tmp_string));
         pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x20 - 0x3C0 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_RWSIZE], snvs_size);
+        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x20 - 0x400 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_RWSIZE], snvs_size);
         memcpy(pen, tmp_string, strlen(tmp_string));
         pen += strlen(tmp_string);
         snprintf(tmp_string, 0x200, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_IOFILE], SNVS_OUTPUT_FILE);

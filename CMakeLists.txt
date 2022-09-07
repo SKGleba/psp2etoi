@@ -93,6 +93,7 @@ add_custom_target(${PROJECT_NAME}.vpk ALL
 	COMMAND vita-mksfoex -s TITLE_ID=${TITLE_ID} "${TITLE_NAME}" compile_param.sfo
 	COMMAND vita-pack-vpk -s compile_param.sfo -b compile_eboot.bin
     -a compile_psp2etoi.skprx=psp2etoi.skprx
+	-a res/psp2spl.skprx=psp2spl.skprx
 	-a res/template.xml=sce_sys/livearea/contents/template.xml
 	-a res/bg.png=sce_sys/livearea/contents/bg.png
 	-a res/startup.png=sce_sys/livearea/contents/startup.png

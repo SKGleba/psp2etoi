@@ -1,4 +1,4 @@
-#include "spl-defs.h"
+#include "../spl-defs.h"
 #include "udienc_defs.h"
 
 static int ks_to_mem(uint32_t op, uint32_t ks, uint32_t dst, uint32_t sz, uint32_t iv, uint32_t src) {
@@ -37,7 +37,7 @@ int __attribute__((section(".text.start"))) start(ct_args* arg) {
 	
 	if (arg->magic != 0xCC1D)
 		return 0xBADF00D0;
-	
+
 	if (arg->c_func & 1) {
 		if (recrypt_cid(arg->cid_block, arg->tmp) < 0)
 			return 0xBADF00D1;
