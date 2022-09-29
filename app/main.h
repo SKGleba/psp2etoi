@@ -1,14 +1,30 @@
-#define PSP2ETOI_INFO "------------------------->\npsp2etoi v0.9.0 by skgleba\n------------------------->\n\n"
+#define PSP2ETOI_INFO "------------------------->\npsp2etoi v1.0.0 by skgleba\n------------------------->\n\n"
 
 #define BSWAP16(x) (((x << 8) & 0xff00) | ((x >> 8) & 0x00ff))
 #define BSWAP32(x) (((x << 24) & 0xff000000 ) | ((x <<  8) & 0x00ff0000 ) | ((x >>  8) & 0x0000ff00 ) | ((x >> 24) & 0x000000ff ))
 
 #define PSP2ETOI_DIR "ux0:data/psp2etoi"
 #define CFG_INPUT_PATH "ux0:data/psp2etoi/input.cfg"
+#define CFG_INREQ_PATH "ux0:data/psp2etoi/input.req"
 #define CFG_OUTPUT_PATH "ux0:data/psp2etoi/output.cfg"
 #define UDI_OUTPUT_FILE "ux0:data/psp2etoi/udi.bin"
-#define SNVS_OUTPUT_FILE "ux0:data/psp2etoi/snvs_0_to_400.bin"
-#define NVS_OUTPUT_FILE "ux0:data/psp2etoi/nvs_400_to_B60.bin"
+#define NVS_OUTPUT_FILE "ux0:data/psp2etoi/nvs.bin"
+#define CFG_BACKUP_PATH "ux0:data/psp2etoi/backup_input.cfg"
+#define CFG_CUSTOM_PATH "ux0:data/psp2etoi/custom_input.cfg"
+#define BACKUP_NVS_OP0_FILE "ux0:data/psp2etoi/backup_nvs_op0.bin"
+#define BACKUP_NVS_OP1_FILE "ux0:data/psp2etoi/backup_nvs_op1.bin"
+#define BACKUP_NVS_OP2_FILE "ux0:data/psp2etoi/backup_nvs_op2.bin"
+#define BACKUP_NVS_OP3_FILE "ux0:data/psp2etoi/backup_nvs_op3.bin"
+
+enum MENU_OPTIONS {
+    MENU_APPLY_INPUTCFG = 0,
+    MENU_CREATE_INPUTCFG,
+    MENU_DUMP_INPUTCFG,
+    MENU_DUMP_UDI,
+    MENU_EXIT,
+    MENU_END
+};
+static char* main_opt_str[] = { " -> Apply a custom device configuration", " -> Create a custom device configuration", " -> Dump the current device configuration", " -> Backup the current Unique Device Indentifiers", " -> Exit" };
 
 #define COMMAND_COUNT 31
 
@@ -47,7 +63,7 @@ const char* valid_commands[COMMAND_COUNT] = {
 };
 
 enum CMD_ENUMS {
-    CMD_INVALID,
+    CMD_INVALID = 0,
     CMD_INPUT,
     CMD_ConsoleID,
     CMD_OpenPSID,

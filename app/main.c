@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "graphics.h"
 
@@ -415,70 +416,53 @@ void parse_config(void* data_start, uint32_t data_size) {
 }
 
 int selftest(void);
-int generate_config(char* dest);
+int generate_config(char* dest, bool based, bool custom);
 
-int main() {
-    tai_module_args_t argg;
-    argg.size = sizeof(argg);
-    argg.pid = KERNEL_PID;
-    argg.args = 0;
-    argg.argp = NULL;
-    argg.flags = 0;
-    taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2spl.skprx", &argg);
-    
-    memset(&argg, 0, sizeof(argg));
-    argg.size = sizeof(argg);
-    argg.pid = KERNEL_PID;
-    argg.args = 0;
-    argg.argp = NULL;
-    argg.flags = 0;
-    SceUID mod_id = taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2etoi.skprx", &argg);
-    if (mod_id > 0)
-        sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
-
-    psvDebugScreenInit();
-
-    sceIoMkdir(PSP2ETOI_DIR, 0777);
-
-    psvDebugScreenClear(COLOR_BLACK);
-    psvDebugScreenSetFgColor(COLOR_BLUE);
-    printf(PSP2ETOI_INFO);
-    psvDebugScreenSetFgColor(COLOR_WHITE);
-
-    psvDebugScreenSetFgColor(COLOR_RED);
-    printf("This software will make PERMANENT modifications to your Vita\nIf anything goes wrong, there is NO RECOVERY.\n\n");
-    psvDebugScreenSetFgColor(COLOR_GREEN);
-    printf("\n\n -> I understood, continue.\n\n");
-    psvDebugScreenSetFgColor(COLOR_WHITE);
-    if (get_key() != SCE_CTRL_CROSS) {
-        press_exit();
+int dump_udi_blocks(void) {
+    printf("dumping UDI\n");
+    {
+        void* tmp_data = malloc(0x800);
+        uint8_t* udi = tmp_data + 0x600;
+        uint8_t* cid_leaf = tmp_data;
+        uint8_t* opsid_leaf_0 = tmp_data + 0x200;
+        uint8_t* opsid_leaf_1 = tmp_data + 0x400;
+        uint32_t tmp_crc;
+        int ret = proxy_etoiRwLeaf(0, 0x44, cid_leaf, 0, &tmp_crc);
+        if (!ret) {
+            ret = proxy_etoiRwLeaf(0, 0x46, opsid_leaf_0, 0, &tmp_crc);
+            if (!ret)
+                ret = proxy_etoiRwLeaf(0, 0x47, opsid_leaf_1, 0, &tmp_crc);
+        }
+        if (ret) {
+            free(tmp_data);
+            psvDebugScreenSetFgColor(COLOR_RED);
+            printf("get_udi_blocks FAILED : 0x%08X\n\n", ret);
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+            press_exit();
+            return -1;
+        }
+        memcpy(udi, cid_leaf + 0xA0, 0x100);
+        memcpy(udi + 0x100, opsid_leaf_0 + 0x128, 0x100);
+        int fd = sceIoOpen(UDI_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
+        if (fd < 0) {
+            free(tmp_data);
+            psvDebugScreenSetFgColor(COLOR_RED);
+            printf("write_udi_blocks FAILED : 0x%08X\n\n", ret);
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+            press_exit();
+            return -1;
+        }
+        sceIoWrite(fd, udi, 0x200);
+        sceIoClose(fd);
+        free(tmp_data);
     }
-
-    psvDebugScreenClear(COLOR_BLACK);
-    psvDebugScreenSetFgColor(COLOR_BLUE);
-    printf(PSP2ETOI_INFO);
-    psvDebugScreenSetFgColor(COLOR_WHITE);
-
-    int ret = selftest();
-    if (ret) {
-        psvDebugScreenSetFgColor(COLOR_RED);
-        printf("\nselftest FAILED : 0x%08X\n\n", ret);
-        psvDebugScreenSetFgColor(COLOR_WHITE);
-        press_exit();
-        return -1;
-    }
-
     psvDebugScreenSetFgColor(COLOR_GREEN);
-    printf("\nselftest PASSED\n\n");
+    printf("udi blocks dumped to %s\n\n", UDI_OUTPUT_FILE);
     psvDebugScreenSetFgColor(COLOR_WHITE);
+    return 0;
+}
 
-    sceKernelDelayThread(1000 * 1000);
-
-    psvDebugScreenClear(COLOR_BLACK);
-    psvDebugScreenSetFgColor(COLOR_BLUE);
-    printf(PSP2ETOI_INFO);
-    psvDebugScreenSetFgColor(COLOR_WHITE);
-
+int apply_config(void) {
     if (file_exists(CFG_INPUT_PATH)) {
         dispatch_table_to_garray();
 
@@ -541,6 +525,8 @@ int main() {
             return -1;
         }
 
+        sceKernelDelayThread(3 * 1000 * 1000);
+        
         psvDebugScreenSetFgColor(COLOR_CYAN);
         printf("Press TRIANGLE to flash the configuration.\n");
         psvDebugScreenSetFgColor(COLOR_WHITE);
@@ -551,31 +537,37 @@ int main() {
             printf(PSP2ETOI_INFO);
             psvDebugScreenSetFgColor(COLOR_WHITE);
 
-            psvDebugScreenSetFgColor(COLOR_YELLOW);
-            
-            for (int i = 2; i < COMMAND_COUNT; i++) {
-                if (g_cmd_args[i].used && g_cmd_args[i].cmd_handler) {
-                    printf("%s... ", valid_commands[i]);
-                    CURRENT_CMD = i;
-                    int ret = g_cmd_args[i].cmd_handler(g_cmd_args[i].ascii_arg);
-                    if (ret) {
-                        psvDebugScreenSetFgColor(COLOR_RED);
-                        printf("FAILED : 0x%X\n", ret);
-                        psvDebugScreenSetFgColor(COLOR_WHITE);
-                        free(config);
-                        press_exit();
-                        return -1;
-                    } else {
-                        psvDebugScreenSetFgColor(COLOR_GREEN);
-                        printf("OK => %s\n", g_cmd_args[i].ascii_arg);
-                        psvDebugScreenSetFgColor(COLOR_YELLOW);
+            printf("Generating a backup based on input.cfg... ");
+            if (generate_config(CFG_BACKUP_PATH, true, false) == 0) {
+                printf("OK!\nInstalling the new input.cfg\n");
+
+                psvDebugScreenSetFgColor(COLOR_YELLOW);
+
+                for (int i = 2; i < COMMAND_COUNT; i++) {
+                    if (g_cmd_args[i].used && g_cmd_args[i].cmd_handler) {
+                        printf("%s... ", valid_commands[i]);
+                        CURRENT_CMD = i;
+                        int ret = g_cmd_args[i].cmd_handler(g_cmd_args[i].ascii_arg);
+                        if (ret) {
+                            psvDebugScreenSetFgColor(COLOR_RED);
+                            printf("FAILED : 0x%X\n", ret);
+                            psvDebugScreenSetFgColor(COLOR_WHITE);
+                            free(config);
+                            press_exit();
+                            return -1;
+                        } else {
+                            psvDebugScreenSetFgColor(COLOR_GREEN);
+                            printf("OK => %s\n", g_cmd_args[i].ascii_arg);
+                            psvDebugScreenSetFgColor(COLOR_YELLOW);
+                        }
                     }
                 }
-            }
 
-            psvDebugScreenSetFgColor(COLOR_WHITE);
+                psvDebugScreenSetFgColor(COLOR_WHITE);
 
-            printf("all done, cleaning\n");
+                printf("all done, cleaning\n");
+            } else
+                printf("FAILED!\nCleaning\n");
         }
 
         for (int i = 0; i < COMMAND_COUNT; i++) {
@@ -584,69 +576,226 @@ int main() {
         }
 
         free(config);
-    }
 
-    psvDebugScreenSetFgColor(COLOR_WHITE);
-    printf("Press CROSS to dump the current configuration.\n");
-    if (get_key() == SCE_CTRL_CROSS) {
+        press_exit_reboot();
 
-        printf("generating output config\n");
-        ret = generate_config(CFG_OUTPUT_PATH);
-        if (ret) {
-            psvDebugScreenSetFgColor(COLOR_RED);
-            printf("gen_config FAILED : 0x%08X\n\n", ret);
-            psvDebugScreenSetFgColor(COLOR_WHITE);
+        while (1) {};
+    } else
+        printf("input config not found!");
+    return -1;
+}
+
+int create_config_from_req(void) {
+    if (file_exists(CFG_INREQ_PATH)) {
+        dispatch_table_to_garray();
+
+        FILE* fp = fopen(CFG_INREQ_PATH, "rb");
+        fseek(fp, 0, SEEK_END);
+        uint32_t config_size = ftell(fp);
+        rewind(fp);
+
+        char* config = malloc(config_size);
+        if (!config) {
+            fclose(fp);
+            printf("\nfailed to alloc for config reader\n");
             press_exit();
             return -1;
         }
 
-        psvDebugScreenSetFgColor(COLOR_GREEN);
-        printf("output config generated @ %s\n\n", CFG_OUTPUT_PATH);
+        fread(config, config_size, 1, fp);
+        fclose(fp);
+
+        printf("parsing config\n");
+        parse_config(config, config_size);
+        printf("parsed\n{\n");
+
+        int actually_used = 0;
+        psvDebugScreenSetFgColor(COLOR_PURPLE);
+        for (int i = 0; i < COMMAND_COUNT; i++) {
+            if (g_cmd_args[i].used) {
+                printf("%s = %s\n", valid_commands[i], (i >= CMD_NVS_OP0_INRAWH && i <= CMD_NVS_OP3_INRAWH) ? "[DATA]" : g_cmd_args[i].ascii_arg);
+                actually_used = 1;
+            }
+        }
         psvDebugScreenSetFgColor(COLOR_WHITE);
+        printf("}\n");
+
+        if (!actually_used) {
+            psvDebugScreenSetFgColor(COLOR_RED);
+            printf("\nconfig empty?\n");
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+            free(config);
+            press_exit();
+            return -1;
+        }
+
+        if (!g_cmd_args[CMD_INPUT].used) {
+            psvDebugScreenSetFgColor(COLOR_RED);
+            printf("\nno INPUT field!\n");
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+            free(config);
+            press_exit();
+            return -1;
+        }
+
+        g_cmd_args[CMD_INPUT].cmd_handler(g_cmd_args[CMD_INPUT].ascii_arg);
+        if (!DO_WRITE_CONFIG) {
+            psvDebugScreenSetFgColor(COLOR_RED);
+            printf("\nINPUT set to 'false' !\n");
+            psvDebugScreenSetFgColor(COLOR_WHITE);
+            free(config);
+            press_exit();
+            return -1;
+        }
+
+        psvDebugScreenClear(COLOR_BLACK);
+        psvDebugScreenSetFgColor(COLOR_BLUE);
+        printf(PSP2ETOI_INFO);
+        psvDebugScreenSetFgColor(COLOR_WHITE);
+
+        printf("Generating a configuration based on input.req... ");
+        if (generate_config(CFG_CUSTOM_PATH, true, true) == 0)
+            printf("all done, cleaning\n");
+        else
+            printf("FAILED!\nCleaning\n");
+
+        for (int i = 0; i < COMMAND_COUNT; i++) {
+            if (g_cmd_args[i].used)
+                free(g_cmd_args[i].ascii_arg);
+        }
+
+        free(config);
+
+        press_exit_reboot();
+
+        while (1) {};
+    } else
+        printf("input config not found!");
+    return -1;
+}
+
+int create_backup(void) {
+    printf("generating output config\n");
+    int ret = generate_config(CFG_OUTPUT_PATH, false, false);
+    if (ret) {
+        psvDebugScreenSetFgColor(COLOR_RED);
+        printf("gen_config FAILED : 0x%08X\n\n", ret);
+        psvDebugScreenSetFgColor(COLOR_WHITE);
+        press_exit();
+        return -1;
     }
 
-    printf("Press SQUARE to dump the current UDI blocks\n");
-    if (get_key() == SCE_CTRL_SQUARE) {
-        printf("dumping UDI\n");
-        {
-            void* tmp_data = malloc(0x800);
-            uint8_t* udi = tmp_data + 0x600;
-            uint8_t* cid_leaf = tmp_data;
-            uint8_t* opsid_leaf_0 = tmp_data + 0x200;
-            uint8_t* opsid_leaf_1 = tmp_data + 0x400;
-            uint32_t tmp_crc;
-            int ret = proxy_etoiRwLeaf(0, 0x44, cid_leaf, 0, &tmp_crc);
-            if (!ret) {
-                ret = proxy_etoiRwLeaf(0, 0x46, opsid_leaf_0, 0, &tmp_crc);
-                if (!ret)
-                    ret = proxy_etoiRwLeaf(0, 0x47, opsid_leaf_1, 0, &tmp_crc);
-            }
-            if (ret) {
-                free(tmp_data);
-                psvDebugScreenSetFgColor(COLOR_RED);
-                printf("get_udi_blocks FAILED : 0x%08X\n\n", ret);
-                psvDebugScreenSetFgColor(COLOR_WHITE);
-                press_exit();
-                return -1;
-            }
-            memcpy(udi, cid_leaf + 0xA0, 0x100);
-            memcpy(udi + 0x100, opsid_leaf_0 + 0x128, 0x100);
-            int fd = sceIoOpen(UDI_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
-            if (fd < 0) {
-                free(tmp_data);
-                psvDebugScreenSetFgColor(COLOR_RED);
-                printf("write_udi_blocks FAILED : 0x%08X\n\n", ret);
-                psvDebugScreenSetFgColor(COLOR_WHITE);
-                press_exit();
-                return -1;
-            }
-            sceIoWrite(fd, udi, 0x200);
-            sceIoClose(fd);
-            free(tmp_data);
-        }
-        psvDebugScreenSetFgColor(COLOR_GREEN);
-        printf("udi blocks dumped to %s\n\n", UDI_OUTPUT_FILE);
+    psvDebugScreenSetFgColor(COLOR_GREEN);
+    printf("output config generated @ %s\n\n", CFG_OUTPUT_PATH);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+    return 0;
+}
+
+void draw_main_menu(int sel) {
+    psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+    for (int i = MENU_APPLY_INPUTCFG; i < MENU_END; i++) {
+        if (sel == i)
+            psvDebugScreenSetFgColor(COLOR_PURPLE);
+        printf("%s\n", main_opt_str[i]);
         psvDebugScreenSetFgColor(COLOR_WHITE);
+    }
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+}
+
+int main() {
+    tai_module_args_t argg;
+    argg.size = sizeof(argg);
+    argg.pid = KERNEL_PID;
+    argg.args = 0;
+    argg.argp = NULL;
+    argg.flags = 0;
+    taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2spl.skprx", &argg);
+    
+    memset(&argg, 0, sizeof(argg));
+    argg.size = sizeof(argg);
+    argg.pid = KERNEL_PID;
+    argg.args = 0;
+    argg.argp = NULL;
+    argg.flags = 0;
+    SceUID mod_id = taiLoadStartKernelModuleForUser("ux0:app/SKGPP2E2I/psp2etoi.skprx", &argg);
+    if (mod_id > 0)
+        sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+
+    psvDebugScreenInit();
+
+    sceIoMkdir(PSP2ETOI_DIR, 0777);
+
+    psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+
+    psvDebugScreenSetFgColor(COLOR_RED);
+    printf("This software will make PERMANENT modifications to your Vita\nIf anything goes wrong, there is NO RECOVERY.\n\n");
+    psvDebugScreenSetFgColor(COLOR_GREEN);
+    printf("\n\n -> I understood, continue.\n\n");
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+    if (get_key() != SCE_CTRL_CROSS) {
+        press_exit();
+    }
+
+    psvDebugScreenClear(COLOR_BLACK);
+    psvDebugScreenSetFgColor(COLOR_BLUE);
+    printf(PSP2ETOI_INFO);
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+
+    int ret = selftest();
+    if (ret) {
+        psvDebugScreenSetFgColor(COLOR_RED);
+        printf("\nselftest FAILED : 0x%08X\n\n", ret);
+        psvDebugScreenSetFgColor(COLOR_WHITE);
+        press_exit();
+        return -1;
+    }
+
+    psvDebugScreenSetFgColor(COLOR_GREEN);
+    printf("\nselftest PASSED\n\n");
+    psvDebugScreenSetFgColor(COLOR_WHITE);
+
+    sceKernelDelayThread(1000 * 1000);
+
+    int sel = 0;
+    SceCtrlData pad;
+    draw_main_menu(sel);
+    while (1) {
+        sceCtrlPeekBufferPositive(0, &pad, 1);
+        if (pad.buttons == SCE_CTRL_CROSS) {
+            switch (sel) {
+            case MENU_APPLY_INPUTCFG:
+                apply_config();
+                break;
+            case MENU_CREATE_INPUTCFG:
+                create_config_from_req();
+                break;
+            case MENU_DUMP_INPUTCFG:
+                create_backup();
+                break;
+            case MENU_DUMP_UDI:
+                dump_udi_blocks();
+                break;
+            default:
+                sceKernelExitProcess(0);
+                break;
+            }
+        } else if (pad.buttons == SCE_CTRL_UP) {
+            if (sel != 0)
+                sel--;
+            draw_main_menu(sel);
+            sceKernelDelayThread(0.3 * 1000 * 1000);
+        } else if (pad.buttons == SCE_CTRL_DOWN) {
+            if (sel + 1 < MENU_END)
+                sel++;
+            draw_main_menu(sel);
+            sceKernelDelayThread(0.3 * 1000 * 1000);
+        }
     }
 
     press_exit_reboot();
@@ -756,15 +905,66 @@ int selftest(void) {
     return 0;
 }
 
-int generate_config(char* dest) {
+int get_nvs_from_ascii_args(uint8_t* nvs, char* ascii_offset, char* ascii_size, char* output, uint32_t* crc_out, bool ascii_out) {
+    if (!nvs || !ascii_offset || !ascii_size || !output || !crc_out)
+        return -20;
+    
+    // get offset
+    uint16_t offset = 0;
+    if (antoh(ascii_offset + 2, &offset, 2))
+        return -21;
+    offset = BSWAP16(offset);
+
+    // get size
+    uint16_t size = 0;
+    if (antoh(ascii_size + 2, &size, 2))
+        return -24;
+    size = BSWAP16(size);
+
+    // check offset/size args
+    if ((offset < 0x400 && offset % 0x20) || (offset >= 0x400 && offset % 0x10))
+        return -27;
+
+    if ((offset < 0x400 && size % 0x20) || (offset >= 0x400 && size % 0x10))
+        return -28;
+
+    if (offset < 0x400 && (offset + size) > 0x400)
+        return -29;
+
+    if (ascii_out) {
+        if (hntoa(nvs + offset, output, size * 2))
+            return -30;
+    } else {
+        int fd = sceIoOpen(output, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
+        if (fd < 0)
+            return -31;
+        sceIoWrite(fd, nvs + offset, size);
+        sceIoClose(fd);
+    }
+
+    *crc_out = crc32(0, nvs + offset, size);
+
+    return 0;
+}
+
+int generate_config(char* dest, bool based, bool custom) {
     uint8_t* tmp_buf = malloc(0x1000);
     if (!tmp_buf)
         return -1;
 
     int ret = -1;
-    char* config = malloc(0x1000);
+    
+    char* custom_nvs_out = NULL;
+    
+    char* config = malloc(0x4000);
     if (!config)
         goto CFG_FREEXIT;
+
+    if (custom) {
+        custom_nvs_out = malloc(0x1800);
+        if (!custom_nvs_out)
+            goto CFG_FREEXIT;
+    }
 
     memset(tmp_buf, 0, 0x1000);
 
@@ -794,52 +994,37 @@ int generate_config(char* dest) {
             goto CFG_FREEXIT;
     }
     ret = -5;
-    uint8_t* snvs = tmp_buf;
-    uint16_t snvs_offset, snvs_size;
-    uint32_t snvs_crc;
-    { // get snvs
-        uint32_t tmp_crc;
-        for (int i = 0; i < 0x20; i++) {
-            if (proxy_etoiNvsRwSecure(0, i, snvs + (i * 0x20), 0, &tmp_crc))
-                goto CFG_FREEXIT;
-        }
-        snvs_offset = 0;
-        snvs_size = 0x400;
-        snvs_crc = crc32(0, snvs, snvs_size);
-    }
-    ret = -6;
-    uint8_t* nvs = tmp_buf + 0x400;
+    uint8_t* nvs = tmp_buf;
     uint16_t nvs_offset, nvs_size;
     uint32_t nvs_crc;
     { // get nvs
-        nvs_offset = 0x400;
-        nvs_size = 0x760;
-        if (proxy_etoiNvsRw(0, nvs_offset, nvs, nvs_size, 0, &nvs_crc))
+        uint32_t tmp_crc;
+        for (int i = 0; i < 0x20; i++) {
+            if (proxy_etoiNvsRwSecure(0, i, nvs + (i * 0x20), 0, &tmp_crc))
+                goto CFG_FREEXIT;
+        }
+        if (proxy_etoiNvsRw(0, 0x400, nvs + 0x400, 0x760, 0, &tmp_crc))
             goto CFG_FREEXIT;
+        nvs_offset = 0;
+        nvs_size = 0xB60;
+        nvs_crc = crc32(0, nvs, nvs_size);
     }
-    ret = -7;
-    { // writeout snvs
-        int fd = sceIoOpen(SNVS_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
-        if (fd < 0)
-            goto CFG_FREEXIT;
-        sceIoWrite(fd, snvs, snvs_size);
-        sceIoClose(fd);
-    }
-    ret = -8;
-    { // writeout nvs
-        int fd = sceIoOpen(NVS_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
-        if (fd < 0)
-            goto CFG_FREEXIT;
-        sceIoWrite(fd, nvs, nvs_size);
-        sceIoClose(fd);
+    if (!based) {
+        ret = -7;
+        { // writeout nvs
+            int fd = sceIoOpen(NVS_OUTPUT_FILE, SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_CREAT, 0777);
+            if (fd < 0)
+                goto CFG_FREEXIT;
+            sceIoWrite(fd, nvs, nvs_size);
+            sceIoClose(fd);
+        }
     }
     ret = -9;
     { // create the config
-        memset(config, 0, 0x1000);
+        memset(config, 0, 0x4000);
         char* pen = config;
         char* cid_ascii = tmp_buf + 0xC00;
         char* opsid_ascii = tmp_buf + 0xC40;
-        char* tmp_string = tmp_buf + 0xE00;
 
         // header
 #define CFG_START_INFO "# psp2etoi configuration file\r\n"
@@ -847,98 +1032,172 @@ int generate_config(char* dest) {
         pen += strlen(CFG_START_INFO);
 
         // input
-        snprintf(tmp_string, 0x200, "#-- -- Config type -- --\r\n%s=%s # If set, the config is written to the device\r\n", valid_commands[CMD_INPUT], "false");
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
+        snprintf(pen, 0x1000, "#-- -- Config type -- --\r\n%s=%s # If set, the config is written to the device\r\n", valid_commands[CMD_INPUT], "false");
+        pen += strlen(pen);
 
         memcpy(pen, "\r\n", strlen("\r\n"));
         pen += strlen("\r\n");
 
         // ConsoleID
+        if (!based || g_cmd_args[CMD_ConsoleID].used || g_cmd_args[CMD_DeviceType].used) {
 #define CFG_CID_WARNING_STRING "#-- -- Console ID -- ---\r\n# WARNING: Editing the ConsoleID may render the device unusable\r\n"
-        memcpy(pen, CFG_CID_WARNING_STRING, strlen(CFG_CID_WARNING_STRING));
-        pen += strlen(CFG_CID_WARNING_STRING);
-        hntoa(cid, cid_ascii, 0x20);
-        cid_ascii[0x20] = 0;
-        snprintf(tmp_string, 0x200, "%s=%s\r\n", valid_commands[CMD_ConsoleID], cid_ascii);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "#%s=0x%02X # 0x00: internal, 0x01: DevKit, 0x02: TestKit, 0x03-0x11: Retail\r\n", valid_commands[CMD_DeviceType], cid[5]);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-
-        memcpy(pen, "\r\n", strlen("\r\n"));
-        pen += strlen("\r\n");
+            memcpy(pen, CFG_CID_WARNING_STRING, strlen(CFG_CID_WARNING_STRING));
+            pen += strlen(CFG_CID_WARNING_STRING);
+            if (!based || g_cmd_args[CMD_ConsoleID].used) {
+                hntoa(cid, cid_ascii, 0x20);
+                cid_ascii[0x20] = 0;
+                snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_ConsoleID], cid_ascii);
+                pen += strlen(pen);
+            }
+            if (!based || g_cmd_args[CMD_DeviceType].used) {
+                snprintf(pen, 0x1000, "%s%s=0x%02X # 0x00: internal, 0x01: DevKit, 0x02: TestKit, 0x03-0x11: Retail\r\n", based ? "" : "#", valid_commands[CMD_DeviceType], cid[5]);
+                pen += strlen(pen);
+            }
+            memcpy(pen, "\r\n", strlen("\r\n"));
+            pen += strlen("\r\n");
+        }
 
         // OpenPSID
-        hntoa(opsid, opsid_ascii, 0x20);
-        opsid_ascii[0x20] = 0;
-        snprintf(tmp_string, 0x200, "#-- -- OpenPSID -- ---\r\n%s=%s\r\n", valid_commands[CMD_OpenPSID], opsid_ascii);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
+        if (!based || g_cmd_args[CMD_OpenPSID].used) {
+            hntoa(opsid, opsid_ascii, 0x20);
+            opsid_ascii[0x20] = 0;
+            snprintf(pen, 0x1000, "#-- -- OpenPSID -- ---\r\n%s=%s\r\n", valid_commands[CMD_OpenPSID], opsid_ascii);
+            pen += strlen(pen);
 
-        memcpy(pen, "\r\n", strlen("\r\n"));
-        pen += strlen("\r\n");
+            memcpy(pen, "\r\n", strlen("\r\n"));
+            pen += strlen("\r\n");
+        }
 
         // mgmt flags
-        snprintf(tmp_string, 0x200, "#-- Management Flags ---\r\n#%s=0x%08X\r\n", valid_commands[CMD_mgmtFlags], ~mgmt_flags);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s # false: Manufacturing Mode, true: Producting Mode\r\n", valid_commands[CMD_SoftwareProductingMode], (~mgmt_flags & 1) ? "true" : "false");
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s # false: SD card mode, true: Vita card mode\r\n", valid_commands[CMD_VCSlotProductingMode], (~mgmt_flags & 2) ? "true" : "false");
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
+        if (!based || g_cmd_args[CMD_mgmtFlags].used || g_cmd_args[CMD_SoftwareProductingMode].used || g_cmd_args[CMD_VCSlotProductingMode].used) {
+#define CFG_MGMTFLAGS_STRING "#-- Management Flags ---\r\n"
+            memcpy(pen, CFG_MGMTFLAGS_STRING, strlen(CFG_MGMTFLAGS_STRING));
+            pen += strlen(CFG_MGMTFLAGS_STRING);
+            if (!based || g_cmd_args[CMD_mgmtFlags].used) {
+                snprintf(pen, 0x1000, "%s%s=0x%08X\r\n", based ? "" : "#", valid_commands[CMD_mgmtFlags], ~mgmt_flags);
+                pen += strlen(pen);
+            }
+            if (!based || g_cmd_args[CMD_SoftwareProductingMode].used) {
+                snprintf(pen, 0x1000, "%s=%s # false: Manufacturing Mode, true: Producting Mode\r\n", valid_commands[CMD_SoftwareProductingMode], (~mgmt_flags & 1) ? "true" : "false");
+                pen += strlen(pen);
+            }
+            if (!based || g_cmd_args[CMD_VCSlotProductingMode].used) {
+                snprintf(pen, 0x1000, "%s=%s # false: SD card mode, true: Vita card mode\r\n", valid_commands[CMD_VCSlotProductingMode], (~mgmt_flags & 2) ? "true" : "false");
+                pen += strlen(pen);
+            }
 
-        memcpy(pen, "\r\n", strlen("\r\n"));
-        pen += strlen("\r\n");
+            memcpy(pen, "\r\n", strlen("\r\n"));
+            pen += strlen("\r\n");
+        }
 
         // mgmt status
+        if (!based || g_cmd_args[CMD_mgmtStatus].used || g_cmd_args[CMD_isSnvsInitialized].used || g_cmd_args[CMD_isQaFlagged].used) {
 #define CFG_MGMTSTATUS_WARNING_STRING "#-- Management Status --\r\n# WARNING: Editing the mgmt status may render the device unusable\r\n"
-        memcpy(pen, CFG_MGMTSTATUS_WARNING_STRING, strlen(CFG_MGMTSTATUS_WARNING_STRING));
-        pen += strlen(CFG_MGMTSTATUS_WARNING_STRING);
-        snprintf(tmp_string, 0x200, "#%s=0x%08X\r\n", valid_commands[CMD_mgmtStatus], ~mgmt_status);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s # if not set, firmware checks are skipped and SNVS reset\r\n", valid_commands[CMD_isSnvsInitialized], (~mgmt_status & 1) ? "true" : "false");
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s # if not set, SL will ignore the QA flags\r\n", valid_commands[CMD_isQaFlagged], (~mgmt_status & 2) ? "true" : "false");
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
+            memcpy(pen, CFG_MGMTSTATUS_WARNING_STRING, strlen(CFG_MGMTSTATUS_WARNING_STRING));
+            pen += strlen(CFG_MGMTSTATUS_WARNING_STRING);
+            if (!based || g_cmd_args[CMD_mgmtStatus].used) {
+                snprintf(pen, 0x1000, "%s%s=0x%08X\r\n", based ? "" : "#", valid_commands[CMD_mgmtStatus], ~mgmt_status);
+                pen += strlen(pen);
+            }
+            if (!based || g_cmd_args[CMD_isSnvsInitialized].used) {
+                snprintf(pen, 0x1000, "%s=%s # if not set, firmware checks are skipped and SNVS reset\r\n", valid_commands[CMD_isSnvsInitialized], (~mgmt_status & 1) ? "true" : "false");
+                pen += strlen(pen);
+            }
+            if (!based || g_cmd_args[CMD_isQaFlagged].used) {
+                snprintf(pen, 0x1000, "%s=%s # if not set, SL will ignore the QA flags\r\n", valid_commands[CMD_isQaFlagged], (~mgmt_status & 2) ? "true" : "false");
+                pen += strlen(pen);
+            }
 
-        memcpy(pen, "\r\n", strlen("\r\n"));
-        pen += strlen("\r\n");
+            memcpy(pen, "\r\n", strlen("\r\n"));
+            pen += strlen("\r\n");
+        }
 
         // nvs data r/w
-#define CFG_SNVS_WARNING_STRING "#-- NVS data R/W --\r\n# WARNING: Editing the s/nvs may render the device unusable\r\n"
-        memcpy(pen, CFG_SNVS_WARNING_STRING, strlen(CFG_SNVS_WARNING_STRING));
-        pen += strlen(CFG_SNVS_WARNING_STRING);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x00 - 0x3E0 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_OFFSET], snvs_offset);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x20 - 0x400 aligned to 0x20\r\n", valid_commands[CMD_NVS_OP0_RWSIZE], snvs_size);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_IOFILE], SNVS_OUTPUT_FILE);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%08X # uint32 data crc32\r\n", valid_commands[CMD_NVS_OP0_BUFCRC], snvs_crc);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x400 - 0xB50 aligned to 0x10\r\n", valid_commands[CMD_NVS_OP1_OFFSET], nvs_offset);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%04X # 0x10 - 0x760 aligned to 0x10\r\n", valid_commands[CMD_NVS_OP1_RWSIZE], nvs_size);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=%s\r\n", valid_commands[CMD_NVS_OP1_IOFILE], NVS_OUTPUT_FILE);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
-        snprintf(tmp_string, 0x200, "%s=0x%08X # uint32 data crc32\r\n", valid_commands[CMD_NVS_OP1_BUFCRC], nvs_crc);
-        memcpy(pen, tmp_string, strlen(tmp_string));
-        pen += strlen(tmp_string);
+        if (!based || g_cmd_args[CMD_NVS_OP0_OFFSET].used) {
+#define CFG_SNVS_WARNING_STRING "#-- NVS data R/W --\r\n# WARNING: Editing the s/nvs may render the device unusable\r\n# NOTE: SNVS (0-0x400) and NVS (0x400-0xB60) must be addressed separately in input config\r\n"
+            memcpy(pen, CFG_SNVS_WARNING_STRING, strlen(CFG_SNVS_WARNING_STRING));
+            pen += strlen(CFG_SNVS_WARNING_STRING);
+            if (based) {
+                uint32_t based_nvs_crc;
+                if (g_cmd_args[CMD_NVS_OP0_OFFSET].used) {
+                    if (custom)
+                        memset(custom_nvs_out, 0, 0x1800);
+                    if (get_nvs_from_ascii_args(nvs, g_cmd_args[CMD_NVS_OP0_OFFSET].ascii_arg, g_cmd_args[CMD_NVS_OP0_RWSIZE].ascii_arg, (custom) ? custom_nvs_out : BACKUP_NVS_OP0_FILE, &based_nvs_crc, custom))
+                        goto CFG_FREEXIT;
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_OFFSET], g_cmd_args[CMD_NVS_OP0_OFFSET].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_RWSIZE], g_cmd_args[CMD_NVS_OP0_RWSIZE].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=0x%08X\r\n", valid_commands[CMD_NVS_OP0_BUFCRC], based_nvs_crc);
+                    pen += strlen(pen);
+                    if (custom)
+                        snprintf(pen, 0x4000, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_INRAWH], custom_nvs_out);
+                    else
+                        snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_IOFILE], BACKUP_NVS_OP0_FILE);
+                    pen += strlen(pen);
+                }
+                if (g_cmd_args[CMD_NVS_OP1_OFFSET].used) {
+                    if (custom)
+                        memset(custom_nvs_out, 0, 0x1800);
+                    if (get_nvs_from_ascii_args(nvs, g_cmd_args[CMD_NVS_OP1_OFFSET].ascii_arg, g_cmd_args[CMD_NVS_OP1_RWSIZE].ascii_arg, (custom) ? custom_nvs_out : BACKUP_NVS_OP1_FILE, &based_nvs_crc, custom))
+                        goto CFG_FREEXIT;
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP1_OFFSET], g_cmd_args[CMD_NVS_OP1_OFFSET].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP1_RWSIZE], g_cmd_args[CMD_NVS_OP1_RWSIZE].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=0x%08X\r\n", valid_commands[CMD_NVS_OP1_BUFCRC], based_nvs_crc);
+                    pen += strlen(pen);
+                    if (custom)
+                        snprintf(pen, 0x4000, "%s=%s\r\n", valid_commands[CMD_NVS_OP1_INRAWH], custom_nvs_out);
+                    else
+                        snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP1_IOFILE], BACKUP_NVS_OP1_FILE);
+                    pen += strlen(pen);
+                }
+                if (g_cmd_args[CMD_NVS_OP2_OFFSET].used) {
+                    if (custom)
+                        memset(custom_nvs_out, 0, 0x1800);
+                    if (get_nvs_from_ascii_args(nvs, g_cmd_args[CMD_NVS_OP2_OFFSET].ascii_arg, g_cmd_args[CMD_NVS_OP2_RWSIZE].ascii_arg, (custom) ? custom_nvs_out : BACKUP_NVS_OP2_FILE, &based_nvs_crc, custom))
+                        goto CFG_FREEXIT;
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP2_OFFSET], g_cmd_args[CMD_NVS_OP2_OFFSET].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP2_RWSIZE], g_cmd_args[CMD_NVS_OP2_RWSIZE].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=0x%08X\r\n", valid_commands[CMD_NVS_OP2_BUFCRC], based_nvs_crc);
+                    pen += strlen(pen);
+                    if (custom)
+                        snprintf(pen, 0x4000, "%s=%s\r\n", valid_commands[CMD_NVS_OP2_INRAWH], custom_nvs_out);
+                    else
+                        snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP2_IOFILE], BACKUP_NVS_OP2_FILE);
+                    pen += strlen(pen);
+                }
+                if (g_cmd_args[CMD_NVS_OP3_OFFSET].used) {
+                    if (custom)
+                        memset(custom_nvs_out, 0, 0x1800);
+                    if (get_nvs_from_ascii_args(nvs, g_cmd_args[CMD_NVS_OP3_OFFSET].ascii_arg, g_cmd_args[CMD_NVS_OP3_RWSIZE].ascii_arg, (custom) ? custom_nvs_out : BACKUP_NVS_OP3_FILE, &based_nvs_crc, custom))
+                        goto CFG_FREEXIT;
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP3_OFFSET], g_cmd_args[CMD_NVS_OP3_OFFSET].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP3_RWSIZE], g_cmd_args[CMD_NVS_OP3_RWSIZE].ascii_arg);
+                    pen += strlen(pen);
+                    snprintf(pen, 0x1000, "%s=0x%08X\r\n", valid_commands[CMD_NVS_OP3_BUFCRC], based_nvs_crc);
+                    pen += strlen(pen);
+                    if (custom)
+                        snprintf(pen, 0x4000, "%s=%s\r\n", valid_commands[CMD_NVS_OP3_INRAWH], custom_nvs_out);
+                    else
+                        snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP3_IOFILE], BACKUP_NVS_OP3_FILE);
+                    pen += strlen(pen);
+                }
+            } else {
+                snprintf(pen, 0x1000, "%s=0x%04X # aligned to 0x20 for snvs, 0x10 for nvs\r\n", valid_commands[CMD_NVS_OP0_OFFSET], nvs_offset);
+                pen += strlen(pen);
+                snprintf(pen, 0x1000, "%s=0x%04X # aligned to 0x20 for snvs, 0x10 for nvs\r\n", valid_commands[CMD_NVS_OP0_RWSIZE], nvs_size);
+                pen += strlen(pen);
+                snprintf(pen, 0x1000, "%s=0x%08X # uint32 data crc32\r\n", valid_commands[CMD_NVS_OP0_BUFCRC], nvs_crc);
+                pen += strlen(pen);
+                snprintf(pen, 0x1000, "%s=%s\r\n", valid_commands[CMD_NVS_OP0_IOFILE], NVS_OUTPUT_FILE);
+                pen += strlen(pen);
+            }
+        }
     }
     ret = -10;
     { // writeout config
@@ -955,5 +1214,7 @@ CFG_FREEXIT:
     free(tmp_buf);
     if (config)
         free(config);
+    if (custom_nvs_out)
+        free(custom_nvs_out);
     return ret;
 }
