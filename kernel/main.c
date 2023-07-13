@@ -1,8 +1,10 @@
-/* 
-	psp2etoi by SKGleba
-	This software may be modified and distributed under the terms of the MIT license.
-	See the LICENSE file for details.
-*/
+/* THIS FILE IS A PART OF PSP2ETOI
+ *
+ * Copyright (C) 2012-2023 skgleba
+ *
+ * This software may be modified and distributed under the terms
+ * of the MIT license.  See the LICENSE file for details.
+ */
 
 #include <stdio.h>
 #include <stdint.h>
@@ -16,6 +18,9 @@
 #include "../cmep/patch_ussm_snvs_rw/pussm.h"
 
 #include "crc32.c"
+
+#define ksceKernelMemcpyFromUser ksceKernelMemcpyUserToKernel
+#define ksceKernelMemcpyToUser ksceKernelMemcpyKernelToUser
 
 #define printf ksceDebugPrintf
 

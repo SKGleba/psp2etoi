@@ -1,0 +1,10 @@
+# psp2etoi configuration request file
+# this requests the device's dev activation details
+
+INPUT=false
+
+OpenPSID=00000000000000000000000000000000
+
+# Some activation/afv data
+NVS_OP0_OFFSET=0x0520
+NVS_OP0_RWSIZE=0x0080

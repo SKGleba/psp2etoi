@@ -1,0 +1,28 @@
+# psp2etoi configuration request file
+# this requests a typical configuration for cloning
+
+INPUT=false
+
+ConsoleID=00000000000000000000000000000000
+
+OpenPSID=00000000000000000000000000000000
+
+mgmtFlags=0x00000000
+
+isQaFlagged=false # only QA flag status to avoid the danger zone
+
+# QAFV
+NVS_OP0_OFFSET=0x02A0
+NVS_OP0_RWSIZE=0x0020
+
+# QAF token
+NVS_OP1_OFFSET=0x0400
+NVS_OP1_RWSIZE=0x0080
+
+# QAF token signature
+NVS_OP2_OFFSET=0x05A0
+NVS_OP2_RWSIZE=0x0100
+
+# Status flags (optional)
+NVS_OP3_OFFSET=0x0480
+NVS_OP3_RWSIZE=0x0010

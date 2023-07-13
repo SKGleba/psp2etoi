@@ -1,3 +1,11 @@
+/* THIS FILE IS A PART OF PSP2ETOI
+ *
+ * Copyright (C) 2012-2023 skgleba
+ *
+ * This software may be modified and distributed under the terms
+ * of the MIT license.  See the LICENSE file for details.
+ */
+
 #define printf psvDebugScreenPrintf
 
 void hexdump(uint8_t* data, int size) {
@@ -101,16 +109,24 @@ uint32_t get_key(void) {
 }
 
 void press_exit(void) {
-    printf("Press any key to exit this application.\n");
-    get_key();
-    sceKernelExitProcess(0);
+    printf("Press SQUARE to exit this application.\n");
+    uint32_t key = 0;
+    while (1) {
+        key = get_key();
+        if (key == SCE_CTRL_SQUARE)
+            sceKernelExitProcess(0);
+    };
 }
 
 void press_exit_reboot(void) {
-    printf("Press CIRCLE to reboot or any other key to exit.\n");
-    if (get_key() == SCE_CTRL_CIRCLE)
-        vshPowerRequestColdReset();
-    else
-        sceKernelExitProcess(0);
+    printf("Press CIRCLE to reboot or SQUARE to exit.\n");
+    uint32_t key = 0;
+    while (1) {
+        key = get_key();
+        if (key == SCE_CTRL_CIRCLE)
+            vshPowerRequestColdReset();
+        else if (key == SCE_CTRL_SQUARE)
+            sceKernelExitProcess(0);
+    };
 }
 

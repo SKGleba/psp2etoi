@@ -1,3 +1,11 @@
+/* THIS FILE IS A PART OF PSP2ETOI
+ *
+ * Copyright (C) 2012-2023 skgleba
+ *
+ * This software may be modified and distributed under the terms
+ * of the MIT license.  See the LICENSE file for details.
+ */
+
 #include "../spl-defs.h"
 
 int __attribute__((section(".text.start"))) start(uint32_t patch_offset) {

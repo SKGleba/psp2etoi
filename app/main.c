@@ -1,3 +1,11 @@
+/* THIS FILE IS A PART OF PSP2ETOI
+ *
+ * Copyright (C) 2012-2023 skgleba
+ *
+ * This software may be modified and distributed under the terms
+ * of the MIT license.  See the LICENSE file for details.
+ */
+
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/modulemgr.h>
 #include <psp2/io/fcntl.h>
@@ -639,9 +647,9 @@ int create_config_from_req(void) {
         }
 
         g_cmd_args[CMD_INPUT].cmd_handler(g_cmd_args[CMD_INPUT].ascii_arg);
-        if (!DO_WRITE_CONFIG) {
+        if (DO_WRITE_CONFIG) {
             psvDebugScreenSetFgColor(COLOR_RED);
-            printf("\nINPUT set to 'false' !\n");
+            printf("\nINPUT set to 'true' !\n");
             psvDebugScreenSetFgColor(COLOR_WHITE);
             free(config);
             press_exit();
@@ -771,15 +779,27 @@ int main() {
             switch (sel) {
             case MENU_APPLY_INPUTCFG:
                 apply_config();
+                sceKernelDelayThread(3 * 1000 * 1000);
+                sel = MENU_EXIT;
+                draw_main_menu(sel);
                 break;
             case MENU_CREATE_INPUTCFG:
                 create_config_from_req();
+                sceKernelDelayThread(3 * 1000 * 1000);
+                sel = MENU_EXIT;
+                draw_main_menu(sel);
                 break;
             case MENU_DUMP_INPUTCFG:
                 create_backup();
+                sceKernelDelayThread(3 * 1000 * 1000);
+                sel = MENU_EXIT;
+                draw_main_menu(sel);
                 break;
             case MENU_DUMP_UDI:
                 dump_udi_blocks();
+                sceKernelDelayThread(3 * 1000 * 1000);
+                sel = MENU_EXIT;
+                draw_main_menu(sel);
                 break;
             default:
                 sceKernelExitProcess(0);
