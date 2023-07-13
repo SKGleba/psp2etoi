@@ -25,6 +25,7 @@ Tags supported by psp2etoi
  - the data is 16 bytes, in ascii
  - eg `ConsoleID=00000001010100100400028A1F7EA815` sets ConsoleID to the one of my DevKit
  - WARNING: Editing the ConsoleID may render the device unusable
+ - WARNING: Also, if you install the wrong Console Id even though it is valid, the system may return SCE_TRUE on sceSblAimgrIsGenuineDolce even though the device is a PSVita, causing system instability. It can also be vice versa.
 
 ### DeviceType
  - only the DeviceType byte of ConsoleID (`cid[5]`)
