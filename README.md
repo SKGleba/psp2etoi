@@ -1,5 +1,5 @@
 # psp2etoi
-Unique Device Identifiers editor for PlayStation Vita/TV<br>
+Unique Device Identifiers manager for PlayStation Vita/TV<br>
 <br>
 This tool allows you to backup or edit the Unique Device Identifiers - ConsoleID and OpenPSID.<br>
 The utility is also capable of dumping or flashing the [syscon S/NVS](https://wiki.henkaku.xyz/vita/Ernie#NVS) that contains configuration data such as QA flags, management flags, boot flags and much more.<br>
@@ -57,6 +57,7 @@ Please keep in mind that this tool is intended for advanced users only, a wrong 
  - You should only use this tool having understood how writing the desired configuration data impacts the device
  - You should always double-check the input configuration file as well as the app's parser output before applying
  - Bad ConsoleID type/sub-code should be recoverable with enso_ex v5, provided you have the backed-up `udi.bin`
+<br>
 
 ## Credits
 Big thanks to
