@@ -6,7 +6,7 @@ The utility is also capable of dumping or flashing the [syscon S/NVS](https://wi
 <br>
 
 ## Usage
-Please keep in mind that this tool is intended for advanced users only, a wrong configuration or program bug can lead to unrecoverable system corruption requiring a motherboard replacement.
+Please keep in mind that this tool is intended for advanced users only; a wrong configuration or program bug can lead to unrecoverable system corruption requiring a motherboard replacement.
 
 ### Prerequisites
 #### Recommended:
