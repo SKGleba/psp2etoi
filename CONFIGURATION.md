@@ -5,7 +5,7 @@ A summary on the psp2etoi's configuration file
 The input configuration is parsed line by line
  - expected line structure is `TAG=DATA`
  - empty lines are ignored
- - comments start with `#`, everything after that character is ignored
+ - comments start with `#`. Everything after that character is ignored
    - eg `# The configuration below writes TAG which is ...`
    - eg `TAG=DATA # set TAG which allows you...`
 <br>
@@ -22,7 +22,7 @@ Tags supported by psp2etoi
 
 ### ConsoleID
  - device-unique ConsoleID
- - the data is 16 bytes, in ascii
+ - the data is 16 bytes in ascii
  - eg `ConsoleID=00000001010100100400028A1F7EA815` sets ConsoleID to the one of my DevKit
  - WARNING: Editing the ConsoleID may render the device unusable
 
@@ -39,7 +39,7 @@ Tags supported by psp2etoi
 
 ### OpenPSID
  - device-unique OpenPSID
- - the data is 16 bytes, in ascii
+ - the data is 16 bytes in ascii
  - eg `OpenPSID=6A244B19A35418F6BA0CBCE784B4218F` sets OpenPSID to the one of my DevKit
 
 ### mgmtFlags
@@ -95,7 +95,7 @@ Tags supported by psp2etoi
  - eg `NVS_OP3_RWSIZE=0x0010` will set NVS operation 3 read/write size to 16 bytes
 
 ### NVS_OPx_INRAWH
- - data for nvs write, where `x` is the operation id - one of 0,1,2,3
+ - data for nvs write where `x` is the operation id - one of 0,1,2,3
  - data is `NVS_OPx_RWSIZE` bytes, in ascii, only one line!
  - eg `NVS_OP3_INRAWH=0000FFFF01FFFFFFFFFFFFFFFFFFFFFF` will set the NVS operation 3 write buffer to those 16 bytes
 
@@ -131,5 +131,5 @@ A brief summary on NVS operations
    - if flashing, `NVS_OP0_BUFCRC` must be set
  - SNVS (0x0000-0x0400) must be handled in separate operations from the rest of NVS (0x0400-0x0B60)
  - Both offset and size have alignment restrictions:
-   - for SNVS (0x0000-0x0400), both must be aligned to 0x20
-   - for the rest of NVS (0x0400-0x0B60), both must be aligned to 0x10
+   - for SNVS (0x0000-0x0400) both must be aligned to 0x20
+   - for the rest of NVS (0x0400-0x0B60) both must be aligned to 0x10
